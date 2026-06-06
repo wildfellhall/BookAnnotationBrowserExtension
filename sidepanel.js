@@ -224,7 +224,17 @@ function addTag(anno, tag) {
             }
             return a;
         });
-        chrome.storage.local.set({ [anno.url]: annotations });
+        chrome.storage.local.set({ [anno.url]: annotations }, () => {
+            // Keep in-memory list in sync
+            allAnnotations = allAnnotations.map(a => {
+                if (a.id === anno.id || a.data?.id === anno.data?.id) {
+                    const tags = a.tags || [];
+                    if (!tags.includes(tag)) tags.push(tag);
+                    return { ...a, tags };
+                }
+                return a;
+            });
+        });
     });
 }
 
@@ -233,13 +243,23 @@ function removeTag(anno, index) {
         let annotations = result[anno.url] || [];
         annotations = annotations.map(a => {
             if (a.id === anno.id || a.data?.id === anno.data?.id) {
-                const tags = a.tags || [];
+                const tags = [...(a.tags || [])];
                 tags.splice(index, 1);
                 return { ...a, tags };
             }
             return a;
         });
-        chrome.storage.local.set({ [anno.url]: annotations });
+        chrome.storage.local.set({ [anno.url]: annotations }, () => {
+            // Keep in-memory list in sync
+            allAnnotations = allAnnotations.map(a => {
+                if (a.id === anno.id || a.data?.id === anno.data?.id) {
+                    const tags = [...(a.tags || [])];
+                    tags.splice(index, 1);
+                    return { ...a, tags };
+                }
+                return a;
+            });
+        });
     });
 }
 
@@ -259,7 +279,30 @@ function removeAnnotation(url, id) {
     chrome.storage.local.get([url], (result) => {
         let annotations = result[url] || [];
         annotations = annotations.filter(a => a.id !== id && a.data?.id !== id);
-        chrome.storage.local.set({ [url]: annotations });
+        chrome.storage.local.set({ [url]: annotations }, () => {
+            // Update in-memory list immediately so UI reflects the deletion
+            allAnnotations = allAnnotations.filter(a => a.id !== id && a.data?.id !== id);
+            renderAnnotations(
+                searchInput.value.trim()
+                    ? allAnnotations.filter(anno => {
+                        const q = searchInput.value.toLowerCase();
+                        const text = (anno.data.text || anno.data.content || '').toLowerCase();
+                        const tags = (anno.tags || []).join(' ').toLowerCase();
+                        return text.includes(q) || tags.includes(q) || anno.url.toLowerCase().includes(q);
+                    })
+                    : allAnnotations
+            );
+            // Tell the content script on the matching tab to remove the DOM element
+            chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+                const tabId = tabs[0]?.id;
+                if (tabId) {
+                    chrome.tabs.sendMessage(tabId, { action: 'deleteAnnotation', id }, () => {
+                        // Ignore errors — the tab may not have the content script running
+                        void chrome.runtime.lastError;
+                    });
+                }
+            });
+        });
     });
 }
 
