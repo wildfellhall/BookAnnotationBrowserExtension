@@ -78,6 +78,8 @@ class AnnotateApp {
         this.toolbarHeight = null;
         this.toolbarTop = null;
         this.toolbarRight = null;
+        this.storageHydrated = false;
+        this.currentPageKey = null;
         this.init();
     }
 
@@ -86,6 +88,7 @@ class AnnotateApp {
             this.applyPreferences(result[PREF_KEY] || {});
             this.createToolbar();
             this.setupListeners();
+            this.setupStorageListener();
             this.loadAnnotations();
         });
     }
@@ -174,6 +177,18 @@ class AnnotateApp {
         return this.fontSizes.find(s => s.id === sizeId)?.value || this.fontSizes[1].value;
     }
 
+    applyNoteTypography(textarea, data, noteType) {
+        const fontId = data.fontFamily || (noteType === 'sticky' ? this.stickyFont : this.marginFont);
+        const sizeId = data.fontSize || this.fontSize;
+        const fontFamily = this.getFontValue(fontId);
+        const fontSize = this.getFontSizeValue(sizeId);
+        textarea.dataset.annotateFont = fontId;
+        textarea.dataset.annotateSize = sizeId;
+        textarea.style.setProperty('font-family', fontFamily, 'important');
+        textarea.style.setProperty('font-size', fontSize, 'important');
+        return { fontFamily: fontId, fontSize: sizeId };
+    }
+
     // ─── Toolbar ─────────────────────────────────────
 
     createToolbar() {
@@ -237,7 +252,6 @@ class AnnotateApp {
         toolbar.appendChild(panel);
         document.body.appendChild(toolbar);
         this.applyToolbarLayout();
-        this.setAnnotationInteraction(false);
     }
 
     setupToolbarDrag(header, closeBtn) {
@@ -491,29 +505,30 @@ class AnnotateApp {
         const textarea = el.querySelector('textarea');
         if (!textarea) return;
 
-        const updates = {};
-        if (el.classList.contains('annotate-sticky') && (type === 'sticky' || type === 'all')) {
-            textarea.style.fontFamily = this.getFontValue(this.stickyFont);
-            updates.fontFamily = this.stickyFont;
-        }
-        if (el.classList.contains('annotate-margin') && (type === 'margin' || type === 'all')) {
-            textarea.style.fontFamily = this.getFontValue(this.marginFont);
-            updates.fontFamily = this.marginFont;
-        }
-        if (type === 'all') {
-            textarea.style.fontSize = this.getFontSizeValue(this.fontSize);
-            updates.fontSize = this.fontSize;
-        }
-        if (Object.keys(updates).length) {
-            this.storeAnnotationMeta(el, updates);
-            this.updateAnnotation(this.selectedAnnotationId, updates);
-        }
+        const isSticky = el.classList.contains('annotate-sticky');
+        const isMargin = el.classList.contains('annotate-margin');
+        if (!isSticky && !isMargin) return;
+
+        const noteType = isSticky ? 'sticky' : 'margin';
+        const fontFamily = isSticky ? this.stickyFont : this.marginFont;
+
+        // Only apply if this change is relevant to the selected note type
+        const relevant = (isSticky && (type === 'sticky' || type === 'all'))
+            || (isMargin && (type === 'margin' || type === 'all'));
+        if (!relevant) return;
+
+        // Apply typography to the live DOM element
+        this.applyNoteTypography(textarea, { fontFamily, fontSize: this.fontSize }, noteType);
+
+        // Build the complete update record so storage stays in sync with display
+        const updates = { fontFamily, fontSize: this.fontSize };
+        this.storeAnnotationMeta(el, updates);
+        this.updateAnnotation(this.selectedAnnotationId, updates);
     }
 
     enableToolbar() {
         this.enabled = true;
         this.showToolbarUI();
-        this.setAnnotationInteraction(true);
     }
 
     disableToolbar() {
@@ -522,16 +537,11 @@ class AnnotateApp {
         this.collapseToolbar();
         this.deselectAnnotation();
         this.toolbarEl?.classList.remove('active');
-        this.setAnnotationInteraction(false);
     }
 
     showToolbarUI() {
         this.toolbarEl?.classList.add('active');
         this.expandToolbar();
-    }
-
-    setAnnotationInteraction(active) {
-        document.body.classList.toggle('annotate-mode-active', active);
     }
 
     expandToolbar() {
@@ -564,20 +574,40 @@ class AnnotateApp {
             else if (this.activeTool === 'squiggle') this.handleSquiggle();
         });
         document.addEventListener('click', (e) => {
-            if (!this.enabled) return;
-            if (['sticky', 'margin', 'tab', 'flag', 'sticker'].includes(this.activeTool)) {
-                this.handlePlacement(e);
-            }
             const inToolbar = e.target.closest('.annotate-toolbar');
             const anno = e.target.closest('.annotate-sticky, .annotate-margin, .annotate-deco, .annotate-highlight, .annotate-squiggle, .annotate-underline');
-            if (anno) this.selectAnnotation(anno);
-            else if (!inToolbar) this.deselectAnnotation();
+
+            if (this.enabled) {
+                if (['sticky', 'margin', 'tab', 'flag', 'sticker'].includes(this.activeTool)) {
+                    this.handlePlacement(e);
+                }
+                if (anno) this.selectAnnotation(anno);
+                else if (!inToolbar) this.deselectAnnotation();
+            }
         });
+
+        const reloadIfPageChanged = () => {
+            const key = this.getPageKey();
+            if (key === this.currentPageKey) return;
+            this.clearDomAnnotations();
+            this.currentPageKey = key;
+            this.storageHydrated = false;
+            chrome.storage.local.get([key], (result) => {
+                this.reconcileAnnotations(result[key] || [], { allowRemoval: false });
+            });
+        };
+        window.addEventListener('popstate', reloadIfPageChanged);
+        window.addEventListener('hashchange', reloadIfPageChanged);
 
         chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
             if (msg.action === 'enableToolbar') {
                 this.enableToolbar();
                 sendResponse({ enabled: true });
+            }
+            if (msg.action === 'deleteAnnotation' && msg.id) {
+                const el = document.getElementById(msg.id);
+                if (el) el.remove();
+                sendResponse({ removed: !!el });
             }
             return true;
         });
@@ -633,7 +663,7 @@ class AnnotateApp {
         if (!el) return;
         if (el.classList.contains('annotate-sticky')) el.style.backgroundColor = color;
         if (el.classList.contains('annotate-deco')) el.querySelector('path').setAttribute('fill', color);
-        if (el.classList.contains('annotate-margin')) el.querySelector('textarea').style.color = color;
+        if (el.classList.contains('annotate-margin')) el.querySelector('textarea')?.style.setProperty('color', color, 'important');
         if (el.classList.contains('annotate-highlight')) el.style.backgroundColor = color;
         if (el.classList.contains('annotate-squiggle') || el.classList.contains('annotate-underline')) {
             const styleType = el.classList.contains('annotate-squiggle') ? 'squiggle' : 'underline';
@@ -756,8 +786,7 @@ class AnnotateApp {
 
         const textarea = document.createElement('textarea');
         textarea.value = data.content || '';
-        textarea.style.fontFamily = this.getFontValue(data.fontFamily || this.stickyFont);
-        textarea.style.fontSize = this.getFontSizeValue(data.fontSize || this.fontSize);
+        this.applyNoteTypography(textarea, data, 'sticky');
         if (data.height) textarea.style.height = Math.max(60, data.height - 40) + 'px';
         textarea.oninput = () => this.updateAnnotation(data.id, { content: textarea.value });
         sticky.appendChild(textarea);
@@ -787,9 +816,8 @@ class AnnotateApp {
 
         const textarea = document.createElement('textarea');
         textarea.value = data.content || '';
-        textarea.style.fontFamily = this.getFontValue(data.fontFamily || this.marginFont);
-        textarea.style.fontSize = this.getFontSizeValue(data.fontSize || this.fontSize);
-        textarea.style.color = data.color;
+        this.applyNoteTypography(textarea, data, 'margin');
+        textarea.style.setProperty('color', data.color, 'important');
         if (data.height) textarea.style.height = Math.max(40, data.height - 16) + 'px';
         textarea.oninput = () => this.updateAnnotation(data.id, { content: textarea.value });
         margin.appendChild(textarea);
@@ -913,7 +941,55 @@ class AnnotateApp {
     // ─── Persistence ─────────────────────────────────
 
     getPageKey() {
-        return window.location.href;
+        return window.location.href.split('#')[0];
+    }
+
+    clearDomAnnotations() {
+        document.querySelectorAll('.annotate-sticky, .annotate-margin, .annotate-deco, .annotate-highlight, .annotate-squiggle, .annotate-underline')
+            .forEach(el => el.remove());
+    }
+
+    updateDomFromStorage(el, anno) {
+        const { type, data } = anno;
+        if (type === 'sticky') {
+            if (data.color) el.style.backgroundColor = data.color;
+            if (data.width) el.style.width = data.width + 'px';
+            if (data.height) el.style.height = data.height + 'px';
+            const textarea = el.querySelector('textarea');
+            if (textarea) {
+                if (data.content !== undefined) textarea.value = data.content;
+                this.applyNoteTypography(textarea, data, 'sticky');
+                if (data.height) textarea.style.height = Math.max(60, data.height - 40) + 'px';
+            }
+            this.storeAnnotationMeta(el, data);
+        } else if (type === 'margin') {
+            if (data.width) el.style.width = data.width + 'px';
+            if (data.height) el.style.height = data.height + 'px';
+            const textarea = el.querySelector('textarea');
+            if (textarea) {
+                if (data.content !== undefined) textarea.value = data.content;
+                this.applyNoteTypography(textarea, data, 'margin');
+                if (data.color) textarea.style.setProperty('color', data.color, 'important');
+                if (data.height) textarea.style.height = Math.max(40, data.height - 16) + 'px';
+            }
+            this.storeAnnotationMeta(el, data);
+        } else if (['tab', 'flag', 'sticker'].includes(type)) {
+            if (data.color) el.querySelector('path')?.setAttribute('fill', data.color);
+            if (data.decoSize) {
+                const svg = el.querySelector('svg');
+                if (svg) {
+                    svg.setAttribute('width', data.decoSize);
+                    svg.setAttribute('height', data.decoSize);
+                }
+            }
+            this.storeAnnotationMeta(el, data);
+        } else if (type === 'highlight' && data.color) {
+            el.style.backgroundColor = data.color;
+            el.dataset.color = data.color;
+        } else if ((type === 'underline' || type === 'squiggle') && data.color) {
+            this.applyTextDecorationStyle(el, type, data.color);
+            el.dataset.color = data.color;
+        }
     }
 
     renderStoredAnnotation(anno) {
@@ -927,24 +1003,43 @@ class AnnotateApp {
         else if (type === 'squiggle') this.applySquiggle(data);
     }
 
-    reconcileAnnotations(stored) {
+    reconcileAnnotations(stored, { allowRemoval = true } = {}) {
         const storedList = Array.isArray(stored) ? stored : [];
         const storedIds = new Set(storedList.map(a => a.data?.id).filter(Boolean));
-        document.querySelectorAll('.annotate-sticky, .annotate-margin, .annotate-deco, .annotate-highlight, .annotate-squiggle, .annotate-underline')
-            .forEach(el => { if (!storedIds.has(el.id)) el.remove(); });
-        storedList.forEach(anno => this.renderStoredAnnotation(anno));
+
+        storedList.forEach(anno => {
+            const el = document.getElementById(anno.data?.id);
+            if (el) this.updateDomFromStorage(el, anno);
+            else this.renderStoredAnnotation(anno);
+        });
+
+        if (allowRemoval && this.storageHydrated) {
+            document.querySelectorAll('.annotate-sticky, .annotate-margin, .annotate-deco, .annotate-highlight, .annotate-squiggle, .annotate-underline')
+                .forEach(el => { if (!storedIds.has(el.id)) el.remove(); });
+        }
+
+        this.storageHydrated = true;
     }
 
     loadAnnotations() {
         const key = this.getPageKey();
-        chrome.storage.local.get([key], (result) => {
-            this.reconcileAnnotations(result[key] || []);
+        const fullKey = window.location.href;
+        this.currentPageKey = key;
+        chrome.storage.local.get([key, fullKey], (result) => {
+            let stored = result[key] || [];
+            if (!stored.length && fullKey !== key && Array.isArray(result[fullKey])) {
+                stored = result[fullKey];
+                chrome.storage.local.set({ [key]: stored });
+            }
+            this.reconcileAnnotations(stored, { allowRemoval: false });
         });
+    }
 
+    setupStorageListener() {
         chrome.storage.onChanged.addListener((changes, area) => {
             if (area !== 'local') return;
             const key = this.getPageKey();
-            if (changes[key]) this.reconcileAnnotations(changes[key].newValue || []);
+            if (changes[key]) this.reconcileAnnotations(changes[key].newValue || [], { allowRemoval: true });
         });
     }
 
