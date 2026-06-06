@@ -4,7 +4,7 @@
    Palette: Antique cream, dusty rose, warm sepia
    ═══════════════════════════════════════════════════ */
 
-@import url('https://fonts.googleapis.com/css2?family=Allura&family=Caveat:wght@400;700&family=Dancing+Script&family=Great+Vibes&family=Homemade+Apple&family=Indie+Flower&family=Pacifico&family=Parisienne&family=Sacramento&family=Satisfy&family=Shadows+Into+Light&display=swap');
+/* Google Fonts are injected as a <link> by content.js — @import is silently ignored in MV3 content scripts. */
 
 :root {
     --parchment: #FFF8F0;
