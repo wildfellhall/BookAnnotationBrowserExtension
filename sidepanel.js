@@ -22,15 +22,109 @@ function enableAnnotationsOnPage() {
 
 enableBtn.addEventListener('click', enableAnnotationsOnPage);
 
+const PREF_KEY = 'annotate_preferences';
+
+const FONT_MAP = {
+    serif: "'Times New Roman', Georgia, Garamond, serif",
+    georgia: "Georgia, 'Times New Roman', serif",
+    caveat: "'Caveat', cursive",
+    dancing: "'Dancing Script', cursive",
+    'great-vibes': "'Great Vibes', cursive",
+    pacifico: "'Pacifico', cursive",
+    satisfy: "'Satisfy', cursive",
+    shadows: "'Shadows Into Light', cursive",
+    indie: "'Indie Flower', cursive",
+    sacramento: "'Sacramento', cursive",
+    allura: "'Allura', cursive",
+    homemade: "'Homemade Apple', cursive",
+    parisienne: "'Parisienne', cursive",
+    sans: 'Helvetica, Arial, sans-serif',
+    mono: "'Courier New', Courier, monospace"
+};
+
+const FONT_LABELS = {
+    serif: 'Times New Roman',
+    georgia: 'Georgia',
+    caveat: 'Caveat',
+    dancing: 'Dancing Script',
+    'great-vibes': 'Great Vibes',
+    pacifico: 'Pacifico',
+    satisfy: 'Satisfy',
+    shadows: 'Shadows Into Light',
+    indie: 'Indie Flower',
+    sacramento: 'Sacramento',
+    allura: 'Allura',
+    homemade: 'Homemade Apple',
+    parisienne: 'Parisienne',
+    sans: 'Sans-serif',
+    mono: 'Monospace'
+};
+
+const FONT_SIZE_MAP = {
+    sm: '0.85rem',
+    md: '1rem',
+    lg: '1.15rem',
+    xl: '1.35rem'
+};
+
+function applyStoredStyles(el, anno) {
+    const data = anno.data || {};
+    if (data.fontFamily && FONT_MAP[data.fontFamily]) {
+        el.style.fontFamily = FONT_MAP[data.fontFamily];
+    }
+    if (data.fontSize && FONT_SIZE_MAP[data.fontSize]) {
+        el.style.fontSize = FONT_SIZE_MAP[data.fontSize];
+    }
+    if (data.color && anno.type === 'margin') {
+        el.style.color = data.color;
+    }
+    if (data.color && anno.type === 'sticky') {
+        el.style.backgroundColor = data.color;
+        el.style.padding = '6px 8px';
+        el.style.borderRadius = '3px';
+    }
+    if (data.color && anno.type === 'highlight') {
+        el.className = 'anno-text anno-highlight-preview';
+        el.style.backgroundColor = data.color;
+    }
+}
+
+function createMetaRow(anno) {
+    const data = anno.data || {};
+    const meta = document.createElement('div');
+    meta.className = 'anno-meta';
+
+    if (data.color) {
+        const swatch = document.createElement('span');
+        swatch.className = 'anno-color-swatch';
+        swatch.style.backgroundColor = data.color;
+        swatch.title = data.color;
+        meta.appendChild(swatch);
+    }
+    if (data.fontFamily) {
+        const fontLabel = document.createElement('span');
+        fontLabel.className = 'anno-meta-label';
+        fontLabel.textContent = FONT_LABELS[data.fontFamily] || data.fontFamily;
+        meta.appendChild(fontLabel);
+    }
+    if (data.fontSize) {
+        const sizeLabel = document.createElement('span');
+        sizeLabel.className = 'anno-meta-label';
+        sizeLabel.textContent = `Size ${data.fontSize.toUpperCase()}`;
+        meta.appendChild(sizeLabel);
+    }
+    return meta.children.length ? meta : null;
+}
+
 function loadAnnotations() {
     chrome.storage.local.get(null, (items) => {
         allAnnotations = [];
         for (const [url, annotations] of Object.entries(items)) {
-            if (Array.isArray(annotations)) {
-                annotations.forEach(anno => {
-                    allAnnotations.push({ ...anno, url });
-                });
-            }
+            if (url === PREF_KEY || !Array.isArray(annotations)) continue;
+            annotations.forEach(anno => {
+                if (!anno?.data?.id) return;
+                allAnnotations.push({ ...anno, url });
+            });
         }
         allAnnotations.sort((a, b) => b.timestamp - a.timestamp);
         renderAnnotations(allAnnotations);
@@ -53,8 +147,11 @@ function renderAnnotations(annotations) {
         typeLabel.textContent = anno.type;
 
         const content = document.createElement('div');
-        content.className = anno.type === 'margin' ? 'anno-content' : 'anno-text';
+        content.className = (anno.type === 'margin' || anno.type === 'sticky') ? 'anno-content' : 'anno-text';
         content.textContent = anno.data.text || anno.data.content || 'Decorative element';
+        applyStoredStyles(content, anno);
+
+        const meta = createMetaRow(anno);
 
         const url = document.createElement('div');
         url.className = 'anno-url';
@@ -73,6 +170,7 @@ function renderAnnotations(annotations) {
 
         item.appendChild(typeLabel);
         item.appendChild(content);
+        if (meta) item.appendChild(meta);
         item.appendChild(url);
 
         // Add tagging UI
@@ -119,7 +217,7 @@ function addTag(anno, tag) {
     chrome.storage.local.get([anno.url], (result) => {
         let annotations = result[anno.url] || [];
         annotations = annotations.map(a => {
-            if (a.id === anno.id) {
+            if (a.id === anno.id || a.data?.id === anno.data?.id) {
                 const tags = a.tags || [];
                 if (!tags.includes(tag)) tags.push(tag);
                 return { ...a, tags };
@@ -134,7 +232,7 @@ function removeTag(anno, index) {
     chrome.storage.local.get([anno.url], (result) => {
         let annotations = result[anno.url] || [];
         annotations = annotations.map(a => {
-            if (a.id === anno.id) {
+            if (a.id === anno.id || a.data?.id === anno.data?.id) {
                 const tags = a.tags || [];
                 tags.splice(index, 1);
                 return { ...a, tags };
@@ -160,7 +258,7 @@ function removeAnnotation(url, id) {
     if (!confirm('Are you sure you want to delete this annotation?')) return;
     chrome.storage.local.get([url], (result) => {
         let annotations = result[url] || [];
-        annotations = annotations.filter(a => a.id !== id);
+        annotations = annotations.filter(a => a.id !== id && a.data?.id !== id);
         chrome.storage.local.set({ [url]: annotations });
     });
 }
@@ -171,3 +269,4 @@ chrome.storage.onChanged.addListener(() => {
 });
 
 loadAnnotations();
+
