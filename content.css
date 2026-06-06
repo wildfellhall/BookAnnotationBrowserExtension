@@ -477,9 +477,7 @@
     background: transparent;
     resize: none;
     outline: none;
-    font-family: var(--font-serif);
     color: var(--ink);
-    font-size: 0.9rem;
     line-height: 1.55;
 }
 
@@ -501,9 +499,7 @@
     border: none;
     resize: none;
     outline: none;
-    font-size: 1.3rem;
     line-height: 1.45;
-    color: var(--sepia);
 }
 
 .handwriting {
@@ -633,21 +629,20 @@
     opacity: 1 !important;
 }
 
-/* Ensure containers can show resize handle */
+/* Annotations always stay visible on the page */
 .annotate-sticky,
 .annotate-margin,
 .annotate-deco {
     position: absolute;
     overflow: visible;
+    visibility: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
 }
 
-/* Ensure annotations don't intercept clicks when annotation mode is off */
-
-body:not(.annotate-mode-active) .annotate-sticky,
-body:not(.annotate-mode-active) .annotate-margin,
-body:not(.annotate-mode-active) .annotate-deco,
-body:not(.annotate-mode-active) .annotate-highlight,
-body:not(.annotate-mode-active) .annotate-squiggle,
-body:not(.annotate-mode-active) .annotate-underline {
-    pointer-events: none;
+.annotate-highlight,
+.annotate-squiggle,
+.annotate-underline {
+    visibility: visible !important;
+    opacity: 1 !important;
 }
