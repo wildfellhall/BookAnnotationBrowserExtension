@@ -83,7 +83,20 @@ class AnnotateApp {
         this.init();
     }
 
+    injectFonts() {
+        const FONT_URL = 'https://fonts.googleapis.com/css2?family=Allura&family=Caveat:wght@400;700&family=Dancing+Script&family=Great+Vibes&family=Homemade+Apple&family=Indie+Flower&family=Pacifico&family=Parisienne&family=Sacramento&family=Satisfy&family=Shadows+Into+Light&display=swap';
+        // @import inside a content-script stylesheet is silently dropped by Chrome MV3.
+        // Inject a real <link> into the host page head instead.
+        if (document.getElementById('annotate-gfonts')) return;
+        const link = document.createElement('link');
+        link.id = 'annotate-gfonts';
+        link.rel = 'stylesheet';
+        link.href = FONT_URL;
+        document.head.appendChild(link);
+    }
+
     init() {
+        this.injectFonts();
         chrome.storage.local.get([PREF_KEY], (result) => {
             this.applyPreferences(result[PREF_KEY] || {});
             this.createToolbar();
@@ -1116,4 +1129,3 @@ class AnnotateApp {
 }
 
 new AnnotateApp();
-
