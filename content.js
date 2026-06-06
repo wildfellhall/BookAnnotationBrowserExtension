@@ -504,7 +504,10 @@ class AnnotateApp {
             textarea.style.fontSize = this.getFontSizeValue(this.fontSize);
             updates.fontSize = this.fontSize;
         }
-        if (Object.keys(updates).length) this.updateAnnotation(this.selectedAnnotationId, updates);
+        if (Object.keys(updates).length) {
+            this.storeAnnotationMeta(el, updates);
+            this.updateAnnotation(this.selectedAnnotationId, updates);
+        }
     }
 
     enableToolbar() {
@@ -586,6 +589,38 @@ class AnnotateApp {
         this.deselectAnnotation();
         el.classList.add('selected');
         this.selectedAnnotationId = el.id;
+        this.syncToolbarFromElement(el);
+    }
+
+    syncToolbarFromElement(el) {
+        const color = el.dataset.color
+            || el.style.backgroundColor
+            || el.querySelector('textarea')?.style.color
+            || el.querySelector('path')?.getAttribute('fill');
+        if (color) {
+            const idx = this.colors.findIndex(c => c.toUpperCase() === color.toUpperCase());
+            if (idx >= 0) {
+                this.currentColorIdx = idx;
+                this.currentCustomColor = null;
+            } else {
+                this.currentCustomColor = color;
+            }
+            this.refreshColorUI();
+        }
+
+        if (el.dataset.fontFamily) {
+            if (el.classList.contains('annotate-sticky')) this.stickyFont = el.dataset.fontFamily;
+            if (el.classList.contains('annotate-margin')) this.marginFont = el.dataset.fontFamily;
+            document.querySelectorAll('.annotate-font-select').forEach((select, i) => {
+                select.value = i === 0 ? this.stickyFont : this.marginFont;
+            });
+        }
+        if (el.dataset.fontSize) {
+            this.fontSize = el.dataset.fontSize;
+            document.querySelectorAll('.annotate-size-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.size === this.fontSize);
+            });
+        }
     }
 
     deselectAnnotation() {
@@ -600,7 +635,11 @@ class AnnotateApp {
         if (el.classList.contains('annotate-deco')) el.querySelector('path').setAttribute('fill', color);
         if (el.classList.contains('annotate-margin')) el.querySelector('textarea').style.color = color;
         if (el.classList.contains('annotate-highlight')) el.style.backgroundColor = color;
-        if (el.classList.contains('annotate-squiggle') || el.classList.contains('annotate-underline')) el.style.borderBottomColor = color;
+        if (el.classList.contains('annotate-squiggle') || el.classList.contains('annotate-underline')) {
+            const styleType = el.classList.contains('annotate-squiggle') ? 'squiggle' : 'underline';
+            this.applyTextDecorationStyle(el, styleType, color);
+        }
+        el.dataset.color = color;
         this.updateAnnotation(this.selectedAnnotationId, { color });
     }
 
@@ -637,39 +676,73 @@ class AnnotateApp {
             const id = 'id-' + Date.now();
             el.className = className;
             el.id = id;
-            if (type === 'highlight') el.style.backgroundColor = color;
-            else el.style.borderBottomColor = color;
+            this.applyTextDecorationStyle(el, type === 'highlight' ? 'background' : type, color);
             const text = selection.toString();
-            const parent = range.commonAncestorContainer.parentElement;
+            const parent = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
+                ? range.commonAncestorContainer.parentElement
+                : range.commonAncestorContainer;
             try {
                 range.surroundContents(el);
+                el.dataset.color = color;
                 this.saveAnnotation(type, { id, text, color, path: this.getUniquePath(parent) });
             } catch (e) { console.error(`Could not apply ${type}:`, e); }
             selection.removeAllRanges();
         }
     }
 
-    applyHighlight(data) { this.renderTextDecoration(data, 'mark', 'annotate-highlight'); }
-    applyUnderline(data) { this.renderTextDecoration(data, 'span', 'annotate-underline', true); }
-    applySquiggle(data) { this.renderTextDecoration(data, 'span', 'annotate-squiggle', true); }
+    applyHighlight(data) { this.renderTextDecoration(data, 'mark', 'annotate-highlight', 'background'); }
+    applyUnderline(data) { this.renderTextDecoration(data, 'span', 'annotate-underline', 'underline'); }
+    applySquiggle(data) { this.renderTextDecoration(data, 'span', 'annotate-squiggle', 'squiggle'); }
 
-    renderTextDecoration(data, tag, className, isBorder = false) {
-        const element = this.getElementByPath(data.path);
-        if (!element) return;
+    applyTextDecorationStyle(el, styleType, color) {
+        if (!color) return;
+        if (styleType === 'background') el.style.backgroundColor = color;
+        else if (styleType === 'underline') el.style.borderBottom = `2px solid ${color}`;
+        else if (styleType === 'squiggle') el.style.borderBottom = `2px wavy ${color}`;
+    }
+
+    wrapTextInElement(root, text, wrapper) {
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: (node) => {
+                if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return node.textContent.includes(text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
+            }
+        });
+        const textNode = walker.nextNode();
+        if (!textNode) return false;
+        const idx = textNode.textContent.indexOf(text);
+        if (idx === -1) return false;
+        try {
+            const range = document.createRange();
+            range.setStart(textNode, idx);
+            range.setEnd(textNode, idx + text.length);
+            range.surroundContents(wrapper);
+            return true;
+        } catch (e) {
+            console.error('Could not restore text decoration:', e);
+            return false;
+        }
+    }
+
+    renderTextDecoration(data, tag, className, styleType) {
+        if (document.getElementById(data.id)) return;
+        const host = this.getElementByPath(data.path);
+        if (!host || !data.text) return;
+
         const el = document.createElement(tag);
         el.className = className;
         el.id = data.id;
-        if (isBorder) el.style.borderBottomColor = data.color;
-        else el.style.backgroundColor = data.color;
-        el.textContent = data.text;
-        if (element.textContent.includes(data.text)) {
-            element.innerHTML = element.innerHTML.replace(data.text, el.outerHTML);
-        }
+        this.applyTextDecorationStyle(el, styleType, data.color);
+        if (data.color) el.dataset.color = data.color;
+        this.wrapTextInElement(host, data.text, el);
     }
 
     // ─── Sticky Notes ────────────────────────────────
 
     createSticky(data, isNew) {
+        if (document.getElementById(data.id)) return;
         const sticky = document.createElement('div');
         sticky.className = 'annotate-sticky';
         sticky.id = data.id;
@@ -685,19 +758,23 @@ class AnnotateApp {
         textarea.value = data.content || '';
         textarea.style.fontFamily = this.getFontValue(data.fontFamily || this.stickyFont);
         textarea.style.fontSize = this.getFontSizeValue(data.fontSize || this.fontSize);
+        if (data.height) textarea.style.height = Math.max(60, data.height - 40) + 'px';
         textarea.oninput = () => this.updateAnnotation(data.id, { content: textarea.value });
         sticky.appendChild(textarea);
+
+        this.storeAnnotationMeta(sticky, data);
 
         this.addResizeHandle(sticky, data);
 
         document.body.appendChild(sticky);
-        if (isNew) this.saveAnnotation('sticky', data);
+        if (isNew) this.saveAnnotation('sticky', this.snapshotNoteData(data, textarea));
         this.makeDraggable(sticky, data);
     }
 
     // ─── Margin Notes ────────────────────────────────
 
     createMarginNote(data, isNew) {
+        if (document.getElementById(data.id)) return;
         const margin = document.createElement('div');
         margin.className = 'annotate-margin';
         margin.id = data.id;
@@ -713,19 +790,23 @@ class AnnotateApp {
         textarea.style.fontFamily = this.getFontValue(data.fontFamily || this.marginFont);
         textarea.style.fontSize = this.getFontSizeValue(data.fontSize || this.fontSize);
         textarea.style.color = data.color;
+        if (data.height) textarea.style.height = Math.max(40, data.height - 16) + 'px';
         textarea.oninput = () => this.updateAnnotation(data.id, { content: textarea.value });
         margin.appendChild(textarea);
+
+        this.storeAnnotationMeta(margin, data);
 
         this.addResizeHandle(margin, data);
 
         document.body.appendChild(margin);
-        if (isNew) this.saveAnnotation('margin', data);
+        if (isNew) this.saveAnnotation('margin', this.snapshotNoteData(data, textarea));
         this.makeDraggable(margin, data);
     }
 
     // ─── Decorative Elements ─────────────────────────
 
     createDecorative(type, data, isNew) {
+        if (document.getElementById(data.id)) return;
         const deco = document.createElement('div');
         deco.className = `annotate-deco annotate-${type}`;
         deco.id = data.id;
@@ -734,12 +815,28 @@ class AnnotateApp {
         const size = data.decoSize || 32;
         deco.innerHTML = `<svg viewBox="0 0 24 24" width="${size}" height="${size}"><path d="${data.icon}" fill="${data.color}" /></svg>`;
 
+        this.storeAnnotationMeta(deco, data);
         this.addDeleteBtn(deco, data.id);
         this.addResizeHandle(deco, data, true);
 
         document.body.appendChild(deco);
-        if (isNew) this.saveAnnotation(type, data);
+        if (isNew) this.saveAnnotation(type, { ...data, decoSize: size });
         this.makeDraggable(deco, data);
+    }
+
+    storeAnnotationMeta(el, data) {
+        if (data.color) el.dataset.color = data.color;
+        if (data.fontFamily) el.dataset.fontFamily = data.fontFamily;
+        if (data.fontSize) el.dataset.fontSize = data.fontSize;
+    }
+
+    snapshotNoteData(data, textarea) {
+        return {
+            ...data,
+            content: textarea.value,
+            fontFamily: data.fontFamily,
+            fontSize: data.fontSize || this.fontSize
+        };
     }
 
     // ─── Shared UI Helpers ───────────────────────────
@@ -815,42 +912,69 @@ class AnnotateApp {
 
     // ─── Persistence ─────────────────────────────────
 
+    getPageKey() {
+        return window.location.href;
+    }
+
+    renderStoredAnnotation(anno) {
+        if (!anno?.data?.id || document.getElementById(anno.data.id)) return;
+        const { type, data } = anno;
+        if (type === 'highlight') this.applyHighlight(data);
+        else if (type === 'sticky') this.createSticky(data, false);
+        else if (type === 'margin') this.createMarginNote(data, false);
+        else if (['tab', 'flag', 'sticker'].includes(type)) this.createDecorative(type, data, false);
+        else if (type === 'underline') this.applyUnderline(data);
+        else if (type === 'squiggle') this.applySquiggle(data);
+    }
+
+    reconcileAnnotations(stored) {
+        const storedList = Array.isArray(stored) ? stored : [];
+        const storedIds = new Set(storedList.map(a => a.data?.id).filter(Boolean));
+        document.querySelectorAll('.annotate-sticky, .annotate-margin, .annotate-deco, .annotate-highlight, .annotate-squiggle, .annotate-underline')
+            .forEach(el => { if (!storedIds.has(el.id)) el.remove(); });
+        storedList.forEach(anno => this.renderStoredAnnotation(anno));
+    }
+
     loadAnnotations() {
-        const key = window.location.href;
+        const key = this.getPageKey();
         chrome.storage.local.get([key], (result) => {
-            (result[key] || []).forEach(anno => {
-                if (anno.type === 'highlight') this.applyHighlight(anno.data);
-                else if (anno.type === 'sticky') this.createSticky(anno.data, false);
-                else if (anno.type === 'margin') this.createMarginNote(anno.data, false);
-                else if (['tab', 'flag', 'sticker'].includes(anno.type)) this.createDecorative(anno.type, anno.data, false);
-                else if (anno.type === 'underline') this.applyUnderline(anno.data);
-                else if (anno.type === 'squiggle') this.applySquiggle(anno.data);
-            });
+            this.reconcileAnnotations(result[key] || []);
+        });
+
+        chrome.storage.onChanged.addListener((changes, area) => {
+            if (area !== 'local') return;
+            const key = this.getPageKey();
+            if (changes[key]) this.reconcileAnnotations(changes[key].newValue || []);
         });
     }
 
     saveAnnotation(type, data) {
-        const key = window.location.href;
+        const key = this.getPageKey();
         chrome.storage.local.get([key], (result) => {
             const annotations = result[key] || [];
-            annotations.push({ type, data, timestamp: Date.now(), id: data.id });
+            if (annotations.some(a => a.data?.id === data.id)) return;
+            annotations.push({ type, data: { ...data }, timestamp: Date.now(), id: data.id });
             chrome.storage.local.set({ [key]: annotations });
         });
     }
 
     updateAnnotation(id, data) {
-        const key = window.location.href;
+        const key = this.getPageKey();
         chrome.storage.local.get([key], (result) => {
             let annotations = result[key] || [];
-            annotations = annotations.map(anno => (anno.data.id === id) ? { ...anno, data: { ...anno.data, ...data } } : anno);
+            annotations = annotations.map(anno => {
+                if (anno.data?.id !== id && anno.id !== id) return anno;
+                const merged = { ...anno.data, ...data };
+                return { ...anno, data: merged, timestamp: Date.now() };
+            });
             chrome.storage.local.set({ [key]: annotations });
         });
     }
 
     deleteAnnotation(id, element) {
-        const key = window.location.href;
+        const key = this.getPageKey();
         chrome.storage.local.get([key], (result) => {
-            let annotations = (result[key] || []).filter(anno => anno.data.id !== id);
+            let annotations = (result[key] || []).filter(anno => anno.data?.id !== id && anno.id !== id);
             chrome.storage.local.set({ [key]: annotations }, () => { if (element) element.remove(); });
         });
     }
@@ -897,3 +1021,4 @@ class AnnotateApp {
 }
 
 new AnnotateApp();
+
