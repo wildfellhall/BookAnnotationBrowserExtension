@@ -1,0 +1,653 @@
+/* ═══════════════════════════════════════════════════
+   ANNOTATE — Classical & Refined Aesthetic
+   Typography: Times New Roman / Caveat
+   Palette: Antique cream, dusty rose, warm sepia
+   ═══════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Allura&family=Caveat:wght@400;700&family=Dancing+Script&family=Great+Vibes&family=Homemade+Apple&family=Indie+Flower&family=Pacifico&family=Parisienne&family=Sacramento&family=Satisfy&family=Shadows+Into+Light&display=swap');
+
+:root {
+    --parchment: #FFF8F0;
+    --parchment-warm: #FDF5EC;
+    --blush: #F2D7D5;
+    --dusty-rose: #D4A0A0;
+    --rose-gold: #C08B8B;
+    --burgundy: #7B3F3F;
+    --sepia: #5C4033;
+    --sepia-light: #8B7355;
+    --ink: #3C2415;
+    --divider: rgba(192, 139, 139, 0.25);
+    --shadow-warm: rgba(124, 63, 63, 0.08);
+    --shadow-rose: rgba(212, 160, 160, 0.20);
+    --font-serif: 'Times New Roman', 'Georgia', 'Garamond', serif;
+}
+
+/* ─── Toolbar ─────────────────────────────────────── */
+
+.annotate-toolbar {
+    position: fixed;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 2147483647;
+    font-family: var(--font-serif);
+    display: none;
+}
+
+.annotate-toolbar.active {
+    display: block;
+}
+
+.annotate-toolbar-fab {
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    border: 1px solid var(--blush);
+    background: var(--parchment);
+    color: var(--rose-gold);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow:
+        0 1px 2px var(--shadow-warm),
+        0 4px 16px var(--shadow-rose);
+    transition: all 0.2s ease;
+}
+
+.annotate-toolbar-fab:hover {
+    background: var(--blush);
+    transform: scale(1.06);
+    box-shadow:
+        0 2px 4px var(--shadow-warm),
+        0 6px 24px var(--shadow-rose);
+}
+
+.annotate-toolbar.expanded .annotate-toolbar-fab {
+    display: none;
+}
+
+.annotate-toolbar-panel {
+    display: none;
+    flex-direction: column;
+    position: relative;
+    background: var(--parchment);
+    border: 1px solid var(--blush);
+    border-radius: 12px;
+    padding: 10px;
+    width: 168px;
+    min-width: 140px;
+    min-height: 180px;
+    max-height: min(90vh, 640px);
+    overflow-y: auto;
+    overflow-x: hidden;
+    box-shadow:
+        0 1px 2px var(--shadow-warm),
+        0 4px 16px var(--shadow-rose),
+        0 12px 40px rgba(92, 64, 51, 0.06);
+    scrollbar-width: thin;
+    scrollbar-color: var(--dusty-rose) transparent;
+}
+
+.annotate-toolbar.expanded .annotate-toolbar-panel {
+    display: flex;
+}
+
+.annotate-toolbar-panel::-webkit-scrollbar {
+    width: 4px;
+}
+
+.annotate-toolbar-panel::-webkit-scrollbar-thumb {
+    background: var(--dusty-rose);
+    border-radius: 4px;
+}
+
+/* ─── Toolbar Header ──────────────────────────────── */
+
+.annotate-toolbar-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid var(--divider);
+    cursor: grab;
+    user-select: none;
+}
+
+.annotate-toolbar-header:active {
+    cursor: grabbing;
+}
+
+.annotate-toolbar-label {
+    font-family: var(--font-serif);
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--dusty-rose);
+    user-select: none;
+}
+
+.annotate-toolbar-close {
+    width: 22px;
+    height: 22px;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--sepia-light);
+    font-size: 16px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease;
+    flex-shrink: 0;
+}
+
+.annotate-toolbar-resize {
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 14px;
+    height: 14px;
+    cursor: nwse-resize;
+    background:
+        linear-gradient(135deg,
+            transparent 30%,
+            var(--dusty-rose) 30%,
+            var(--dusty-rose) 40%,
+            transparent 40%,
+            transparent 55%,
+            var(--dusty-rose) 55%,
+            var(--dusty-rose) 65%,
+            transparent 65%,
+            transparent 80%,
+            var(--dusty-rose) 80%,
+            var(--dusty-rose) 90%,
+            transparent 90%);
+    border-radius: 0 0 8px 0;
+    opacity: 0.55;
+    transition: opacity 0.15s ease;
+}
+
+.annotate-toolbar-resize:hover {
+    opacity: 1;
+}
+
+.annotate-toolbar-close:hover {
+    background: var(--blush);
+    color: var(--burgundy);
+}
+
+/* ─── Toolbar Sections ────────────────────────────── */
+
+.annotate-toolbar-section {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--divider);
+}
+
+.annotate-toolbar-section:last-of-type {
+    border-bottom: none;
+}
+
+.annotate-section-label {
+    font-size: 0.55rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--sepia-light);
+    margin-bottom: 6px;
+    user-select: none;
+}
+
+/* ─── Color Picker ────────────────────────────────── */
+
+.annotate-color-picker {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 4px;
+    max-height: 72px;
+    overflow-y: auto;
+    padding: 2px;
+}
+
+.color-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 1.5px solid rgba(92, 64, 51, 0.08);
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+    justify-self: center;
+}
+
+.color-dot:hover {
+    transform: scale(1.3);
+    box-shadow: 0 0 6px rgba(0, 0, 0, 0.12);
+}
+
+.color-dot.active {
+    transform: scale(1.2);
+    border-color: var(--burgundy);
+    box-shadow:
+        0 0 0 2px var(--parchment),
+        0 0 0 3px var(--rose-gold);
+}
+
+.annotate-custom-color {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 6px;
+}
+
+.annotate-color-input {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    border: 1.5px solid var(--divider);
+    border-radius: 6px;
+    cursor: pointer;
+    background: none;
+}
+
+.annotate-color-input::-webkit-color-swatch-wrapper {
+    padding: 2px;
+}
+
+.annotate-color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 3px;
+}
+
+.annotate-custom-color-label {
+    font-size: 0.65rem;
+    color: var(--sepia-light);
+    flex: 1;
+}
+
+.annotate-color-add {
+    width: 24px;
+    height: 24px;
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    background: var(--parchment-warm);
+    color: var(--rose-gold);
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s ease;
+}
+
+.annotate-color-add:hover {
+    background: var(--blush);
+}
+
+/* ─── Font Controls ───────────────────────────────── */
+
+.annotate-font-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+}
+
+.annotate-font-row-label {
+    font-size: 0.6rem;
+    color: var(--sepia-light);
+    width: 36px;
+    flex-shrink: 0;
+}
+
+.annotate-font-select {
+    flex: 1;
+    font-family: var(--font-serif);
+    font-size: 0.65rem;
+    padding: 3px 4px;
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    background: var(--parchment-warm);
+    color: var(--ink);
+    cursor: pointer;
+    outline: none;
+}
+
+.annotate-font-select:focus {
+    border-color: var(--dusty-rose);
+}
+
+.annotate-font-size-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.annotate-size-group {
+    display: flex;
+    gap: 3px;
+    flex: 1;
+}
+
+.annotate-size-btn {
+    flex: 1;
+    padding: 3px 0;
+    border: 1px solid var(--divider);
+    border-radius: 5px;
+    background: var(--parchment-warm);
+    color: var(--sepia-light);
+    font-family: var(--font-serif);
+    font-size: 0.6rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.annotate-size-btn:hover {
+    background: var(--blush);
+}
+
+.annotate-size-btn.active {
+    background: var(--blush);
+    border-color: var(--dusty-rose);
+    color: var(--burgundy);
+}
+
+/* ─── Tool Buttons ────────────────────────────────── */
+
+.annotate-toolbar-tools {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+    padding-top: 6px;
+}
+
+.annotate-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s ease;
+    position: relative;
+    justify-self: center;
+}
+
+.annotate-btn svg {
+    position: relative;
+    z-index: 1;
+}
+
+.annotate-btn:hover {
+    background: var(--blush);
+    border-color: var(--divider);
+}
+
+.annotate-btn.active {
+    background: var(--blush);
+    border-color: var(--dusty-rose);
+    box-shadow: inset 0 1px 3px rgba(123, 63, 63, 0.12);
+}
+
+.annotate-btn .btn-label {
+    display: none;
+    position: absolute;
+    right: calc(100% + 8px);
+    top: 50%;
+    transform: translateY(-50%);
+    background: var(--ink);
+    color: var(--parchment);
+    font-family: var(--font-serif);
+    font-size: 0.65rem;
+    padding: 3px 8px;
+    border-radius: 5px;
+    white-space: nowrap;
+    letter-spacing: 0.5px;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.annotate-btn:hover .btn-label {
+    display: block;
+}
+
+@media (max-height: 500px) {
+    .annotate-toolbar-panel {
+        max-height: calc(100vh - 16px);
+    }
+
+    .annotate-toolbar-tools {
+        grid-template-columns: repeat(4, 1fr);
+    }
+
+    .annotate-btn {
+        width: 32px;
+        height: 32px;
+    }
+}
+
+@media (max-width: 480px) {
+    .annotate-toolbar {
+        right: 8px;
+    }
+
+    .annotate-toolbar-panel {
+        max-width: calc(100vw - 16px);
+    }
+}
+
+/* ─── Sticky Notes ────────────────────────────────── */
+
+.annotate-sticky {
+    position: absolute;
+    width: 200px;
+    min-height: 140px;
+    padding: 16px 14px 14px;
+    border-radius: 3px;
+    z-index: 10000;
+    cursor: move;
+    font-family: var(--font-serif);
+    border: none;
+    box-shadow:
+        2px 3px 8px rgba(92, 64, 51, 0.10),
+        0 0 0 1px rgba(0, 0, 0, 0.03);
+    transition: box-shadow 0.2s ease;
+}
+
+.annotate-sticky:hover {
+    box-shadow:
+        3px 5px 14px rgba(92, 64, 51, 0.16),
+        0 0 0 1px rgba(0, 0, 0, 0.04);
+}
+
+.annotate-sticky textarea {
+    width: 100%;
+    height: 100%;
+    min-height: 100px;
+    border: none;
+    background: transparent;
+    resize: none;
+    outline: none;
+    font-family: var(--font-serif);
+    color: var(--ink);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+
+/* ─── Margin Notes ────────────────────────────────── */
+
+.annotate-margin {
+    position: absolute;
+    width: 200px;
+    z-index: 10000;
+    cursor: move;
+    padding: 8px 0;
+    border-left: 2px solid var(--dusty-rose);
+    padding-left: 12px;
+}
+
+.annotate-margin textarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    resize: none;
+    outline: none;
+    font-size: 1.3rem;
+    line-height: 1.45;
+    color: var(--sepia);
+}
+
+.handwriting {
+    font-family: 'Caveat', cursive !important;
+}
+
+/* ─── Decorative Elements ─────────────────────────── */
+
+.annotate-deco {
+    position: absolute;
+    z-index: 10000;
+    cursor: move;
+    transition: transform 0.15s ease;
+    opacity: 0.85;
+}
+
+.annotate-deco:hover {
+    transform: scale(1.12);
+    opacity: 1;
+}
+
+/* ─── Text Decorations ────────────────────────────── */
+
+.annotate-highlight {
+    cursor: pointer;
+    border-radius: 2px;
+    transition: opacity 0.2s ease;
+    padding: 1px 0;
+}
+
+.annotate-highlight:hover {
+    opacity: 0.75;
+}
+
+.annotate-underline {
+    border-bottom: 2px solid var(--dusty-rose);
+    text-decoration: none;
+    padding-bottom: 1px;
+}
+
+.annotate-squiggle {
+    border-bottom: 2px wavy var(--dusty-rose);
+    text-decoration: none;
+    padding-bottom: 1px;
+}
+
+/* ─── Delete Button ───────────────────────────────── */
+
+.annotate-delete-btn {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 20px;
+    height: 20px;
+    background: var(--burgundy);
+    color: var(--parchment);
+    border-radius: 50%;
+    border: 2px solid var(--parchment);
+    font-size: 13px;
+    line-height: 16px;
+    text-align: center;
+    cursor: pointer;
+    display: none;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18);
+    transition: background 0.15s ease;
+}
+
+.annotate-delete-btn:hover {
+    background: #a04040;
+}
+
+.annotate-sticky:hover .annotate-delete-btn,
+.annotate-margin:hover .annotate-delete-btn,
+.annotate-deco:hover .annotate-delete-btn {
+    display: block;
+}
+
+/* ─── Selection State ─────────────────────────────── */
+
+.selected {
+    outline: 2px solid var(--rose-gold) !important;
+    outline-offset: 3px;
+    box-shadow: 0 0 12px rgba(192, 139, 139, 0.35) !important;
+}
+
+.annotate-highlight.selected,
+.annotate-squiggle.selected,
+.annotate-underline.selected {
+    background-color: rgba(212, 160, 160, 0.25) !important;
+}
+
+/* ─── Resize Handle ───────────────────────────────── */
+
+.annotate-resize-handle {
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    width: 14px;
+    height: 14px;
+    cursor: nwse-resize;
+    background:
+        linear-gradient(135deg,
+            transparent 30%,
+            var(--dusty-rose) 30%,
+            var(--dusty-rose) 40%,
+            transparent 40%,
+            transparent 55%,
+            var(--dusty-rose) 55%,
+            var(--dusty-rose) 65%,
+            transparent 65%,
+            transparent 80%,
+            var(--dusty-rose) 80%,
+            var(--dusty-rose) 90%,
+            transparent 90%);
+    border-radius: 0 0 3px 0;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+}
+
+.annotate-sticky:hover .annotate-resize-handle,
+.annotate-margin:hover .annotate-resize-handle,
+.annotate-deco:hover .annotate-resize-handle {
+    opacity: 0.6;
+}
+
+.annotate-resize-handle:hover {
+    opacity: 1 !important;
+}
+
+/* Ensure containers can show resize handle */
+.annotate-sticky,
+.annotate-margin,
+.annotate-deco {
+    position: absolute;
+    overflow: visible;
+}
+
+/* Ensure annotations don't intercept clicks when annotation mode is off */
+
+body:not(.annotate-mode-active) .annotate-sticky,
+body:not(.annotate-mode-active) .annotate-margin,
+body:not(.annotate-mode-active) .annotate-deco,
+body:not(.annotate-mode-active) .annotate-highlight,
+body:not(.annotate-mode-active) .annotate-squiggle,
+body:not(.annotate-mode-active) .annotate-underline {
+    pointer-events: none;
+}
