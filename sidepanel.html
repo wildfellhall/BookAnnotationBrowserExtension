@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Annotate — My Annotations</title>
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Times New Roman', Georgia, Garamond, serif;
+            padding: 24px 20px;
+            background: #FFF8F0;
+            color: #3C2415;
+            line-height: 1.5;
+        }
+
+        /* ─── Header ─────────────────────────────────── */
+        .header {
+            margin-bottom: 28px;
+            position: sticky;
+            top: 0;
+            background: #FFF8F0;
+            padding: 0 0 16px;
+            border-bottom: 1px solid rgba(192, 139, 139, 0.25);
+            z-index: 10;
+        }
+
+        .header-brand {
+            display: flex;
+            align-items: baseline;
+            gap: 8px;
+            margin-bottom: 14px;
+        }
+
+        h1 {
+            font-size: 1.35rem;
+            font-weight: 700;
+            color: #7B3F3F;
+            letter-spacing: 0.5px;
+        }
+
+        .header-subtitle {
+            font-size: 0.75rem;
+            color: #D4A0A0;
+            font-style: italic;
+            letter-spacing: 0.3px;
+        }
+
+        #search {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid #F2D7D5;
+            background: white;
+            font-size: 0.95rem;
+            font-family: inherit;
+            color: #3C2415;
+            outline: none;
+            transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        #search::placeholder {
+            color: #C08B8B;
+            font-style: italic;
+        }
+
+        #search:focus {
+            border-color: #D4A0A0;
+            box-shadow: 0 0 0 3px rgba(212, 160, 160, 0.15);
+        }
+
+        .enable-btn {
+            width: 100%;
+            margin-top: 12px;
+            padding: 10px 14px;
+            border: none;
+            border-radius: 8px;
+            background: #7B3F3F;
+            color: #FFF8F0;
+            font-family: inherit;
+            font-size: 0.9rem;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+            cursor: pointer;
+            transition: background 0.2s ease, transform 0.15s ease;
+        }
+
+        .enable-btn:hover {
+            background: #a04040;
+        }
+
+        .enable-btn:active {
+            transform: scale(0.98);
+        }
+
+        .enable-status {
+            margin-top: 8px;
+            font-size: 0.75rem;
+            color: #8B7355;
+            font-style: italic;
+            min-height: 1.1em;
+        }
+
+        /* ─── Annotation List ────────────────────────── */
+        .annotation-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .annotation-item {
+            background: white;
+            padding: 16px 18px;
+            border-radius: 8px;
+            border: 1px solid rgba(242, 215, 213, 0.5);
+            box-shadow: 0 1px 4px rgba(92, 64, 51, 0.05);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            position: relative;
+            transition: box-shadow 0.2s ease;
+        }
+
+        .annotation-item:hover {
+            box-shadow: 0 3px 12px rgba(92, 64, 51, 0.08);
+        }
+
+        .anno-type {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            font-weight: 700;
+            color: #C08B8B;
+            letter-spacing: 2px;
+        }
+
+        .anno-text {
+            font-size: 0.95rem;
+            line-height: 1.55;
+            color: #3C2415;
+        }
+
+        .anno-content {
+            font-family: 'Caveat', cursive;
+            font-size: 1.3rem;
+            color: #7B3F3F;
+            line-height: 1.35;
+        }
+
+        .anno-url {
+            font-size: 0.7rem;
+            color: #B5A08A;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            font-style: italic;
+        }
+
+        /* ─── Tags ───────────────────────────────────── */
+        .anno-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-top: 2px;
+        }
+
+        .tag {
+            background: #FDF5EC;
+            color: #7B3F3F;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            border: 1px solid #F2D7D5;
+            letter-spacing: 0.3px;
+            transition: all 0.15s ease;
+        }
+
+        .tag:hover {
+            background: #FFE8E8;
+            text-decoration: line-through;
+            color: #a04040;
+        }
+
+        .add-tag-input {
+            border: 1px dashed #D4A0A0;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-size: 0.7rem;
+            width: 65px;
+            outline: none;
+            font-family: inherit;
+            color: #5C4033;
+            transition: width 0.2s ease, border-color 0.2s ease;
+        }
+
+        .add-tag-input:focus {
+            border-style: solid;
+            border-color: #C08B8B;
+            width: 90px;
+        }
+
+        /* ─── Delete ─────────────────────────────────── */
+        .delete-btn {
+            position: absolute;
+            top: 14px;
+            right: 14px;
+            background: none;
+            border: none;
+            color: #D4A0A0;
+            cursor: pointer;
+            font-size: 1.1rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            transition: all 0.15s ease;
+            line-height: 1;
+        }
+
+        .delete-btn:hover {
+            color: #a04040;
+            background: rgba(160, 64, 64, 0.06);
+        }
+
+        /* ─── Empty State ────────────────────────────── */
+        .empty-state {
+            text-align: center;
+            color: #C08B8B;
+            margin-top: 80px;
+            font-style: italic;
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        /* ─── Divider Ornament ────────────────────────── */
+        .ornament {
+            text-align: center;
+            color: #D4A0A0;
+            font-size: 0.8rem;
+            letter-spacing: 6px;
+            margin: 4px 0;
+            user-select: none;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="header">
+        <div class="header-brand">
+            <h1>Annotate</h1>
+            <span class="header-subtitle"> my annotations</span>
+        </div>
+        <input type="text" id="search" placeholder="Search passages, notes, or tags...">
+        <button id="enable-btn" class="enable-btn" type="button">Annotate this page</button>
+        <p id="enable-status" class="enable-status">Use the close button on the toolbar to close it when you're done.</p>
+    </div>
+    <div class="ornament">. . .</div>
+    <div id="annotation-list" class="annotation-list">
+        <p class="empty-state">No annotations yet.<br>Open a book and start highlighting.</p>
+    </div>
+    <script src="sidepanel.js"></script>
+</body>
+
+</html>
