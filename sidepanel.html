@@ -3,7 +3,7 @@
 
 <head>
     <title>Annotate — My Annotations</title>
-    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Allura&family=Caveat:wght@400;700&family=Dancing+Script&family=Great+Vibes&family=Homemade+Apple&family=Indie+Flower&family=Pacifico&family=Parisienne&family=Sacramento&family=Satisfy&family=Shadows+Into+Light&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -158,6 +158,36 @@
             overflow: hidden;
             text-overflow: ellipsis;
             font-style: italic;
+        }
+
+        .anno-meta {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .anno-color-swatch {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            border: 1px solid rgba(92, 64, 51, 0.15);
+            flex-shrink: 0;
+        }
+
+        .anno-meta-label {
+            font-size: 0.7rem;
+            color: #8B7355;
+            background: #FDF5EC;
+            padding: 2px 8px;
+            border-radius: 4px;
+            border: 1px solid #F2D7D5;
+        }
+
+        .anno-highlight-preview {
+            display: inline;
+            padding: 1px 4px;
+            border-radius: 2px;
         }
 
         /* ─── Tags ───────────────────────────────────── */
