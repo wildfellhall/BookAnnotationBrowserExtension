@@ -712,25 +712,45 @@ class AnnotateApp {
 
     applyTextDecoration(type, tag, className) {
         const selection = window.getSelection();
-        if (selection.rangeCount > 0 && !selection.isCollapsed) {
-            const range = selection.getRangeAt(0);
-            const el = document.createElement(tag);
-            const color = this.getCurrentColor();
-            const id = 'id-' + Date.now();
-            el.className = className;
-            el.id = id;
-            this.applyTextDecorationStyle(el, type === 'highlight' ? 'background' : type, color);
-            const text = selection.toString();
-            const parent = range.commonAncestorContainer.nodeType === Node.TEXT_NODE
-                ? range.commonAncestorContainer.parentElement
-                : range.commonAncestorContainer;
+        if (selection.rangeCount === 0 || selection.isCollapsed) return;
+        const range = selection.getRangeAt(0);
+        const color = this.getCurrentColor();
+        const id = 'id-' + Date.now();
+        const text = selection.toString();
+        if (!text.trim()) return;
+
+        // Capture location BEFORE any DOM mutation
+        const startContainer = range.startContainer;
+        const startNode = startContainer.nodeType === Node.TEXT_NODE
+            ? startContainer.parentElement : startContainer;
+        const path = this.getUniquePath(startNode);
+        const startOffset = range.startOffset;
+        // Count how many times this exact text appears before this point in the document
+        const occurrence = this.getTextOccurrenceIndex(range, text);
+
+        const el = document.createElement(tag);
+        el.className = className;
+        el.id = id;
+        el.dataset.color = color;
+        this.applyTextDecorationStyle(el, type === 'highlight' ? 'background' : type, color);
+
+        try {
+            // surroundContents only works when range doesn't cross element boundaries
+            range.surroundContents(el);
+        } catch (_) {
+            // Fallback: wrap the extracted contents (handles cross-element selections)
             try {
-                range.surroundContents(el);
-                el.dataset.color = color;
-                this.saveAnnotation(type, { id, text, color, path: this.getUniquePath(parent) });
-            } catch (e) { console.error(`Could not apply ${type}:`, e); }
-            selection.removeAllRanges();
+                el.appendChild(range.extractContents());
+                range.insertNode(el);
+            } catch (e2) {
+                console.error('Could not apply ' + type + ':', e2);
+                selection.removeAllRanges();
+                return;
+            }
         }
+
+        selection.removeAllRanges();
+        this.saveAnnotation(type, { id, text, color, path, startOffset, occurrence });
     }
 
     applyHighlight(data) { this.renderTextDecoration(data, 'mark', 'annotate-highlight', 'background'); }
@@ -744,7 +764,58 @@ class AnnotateApp {
         else if (styleType === 'squiggle') el.style.borderBottom = `2px wavy ${color}`;
     }
 
-    wrapTextInElement(root, text, wrapper) {
+    // Returns index (0-based) of how many times `text` appears in the document
+    // before the given range's start point. Used to disambiguate repeated passages.
+    getTextOccurrenceIndex(range, text) {
+        const priorRange = document.createRange();
+        priorRange.setStart(document.body, 0);
+        priorRange.setEnd(range.startContainer, range.startOffset);
+        const priorText = priorRange.toString();
+        let count = 0, pos = 0;
+        while ((pos = priorText.indexOf(text, pos)) !== -1) { count++; pos++; }
+        return count;
+    }
+
+    // Find the Nth occurrence (0-based) of `text` in the page, skipping already-annotated nodes.
+    findNthOccurrence(text, occurrence) {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+            acceptNode: (node) => {
+                if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        let count = 0;
+        let node;
+        while ((node = walker.nextNode())) {
+            let pos = 0;
+            while ((pos = node.textContent.indexOf(text, pos)) !== -1) {
+                if (count === occurrence) return { node, pos };
+                count++;
+                pos++;
+            }
+        }
+        return null;
+    }
+
+    wrapTextInElement(root, text, wrapper, occurrence = 0, startOffset = null) {
+        // First try: honour the occurrence index across the full document body
+        // so repeated passages resolve to the right one.
+        const found = this.findNthOccurrence(text, occurrence);
+        if (found) {
+            try {
+                const range = document.createRange();
+                range.setStart(found.node, found.pos);
+                range.setEnd(found.node, found.pos + text.length);
+                range.surroundContents(wrapper);
+                return true;
+            } catch (_) {
+                // Cross-element range — fall through to root-scoped fallback
+            }
+        }
+
+        // Fallback: search within the stored parent element (old behaviour)
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
             acceptNode: (node) => {
                 if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
@@ -761,7 +832,12 @@ class AnnotateApp {
             const range = document.createRange();
             range.setStart(textNode, idx);
             range.setEnd(textNode, idx + text.length);
-            range.surroundContents(wrapper);
+            try {
+                range.surroundContents(wrapper);
+            } catch (_) {
+                wrapper.appendChild(range.extractContents());
+                range.insertNode(wrapper);
+            }
             return true;
         } catch (e) {
             console.error('Could not restore text decoration:', e);
@@ -771,15 +847,21 @@ class AnnotateApp {
 
     renderTextDecoration(data, tag, className, styleType) {
         if (document.getElementById(data.id)) return;
-        const host = this.getElementByPath(data.path);
-        if (!host || !data.text) return;
+        if (!data.text) return;
+
+        // Try the stored path first; if the element is gone (dynamic page),
+        // fall back to searching the whole body.
+        const host = this.getElementByPath(data.path) || document.body;
 
         const el = document.createElement(tag);
         el.className = className;
         el.id = data.id;
         this.applyTextDecorationStyle(el, styleType, data.color);
         if (data.color) el.dataset.color = data.color;
-        this.wrapTextInElement(host, data.text, el);
+
+        const ok = this.wrapTextInElement(host, data.text, el,
+            data.occurrence ?? 0, data.startOffset ?? null);
+        return ok;
     }
 
     // ─── Sticky Notes ────────────────────────────────
@@ -1045,7 +1127,29 @@ class AnnotateApp {
                 chrome.storage.local.set({ [key]: stored });
             }
             this.reconcileAnnotations(stored, { allowRemoval: false });
+
+            // For dynamic/EPUB pages the text nodes may not be in the DOM yet.
+            // Watch for DOM mutations and retry any text decorations that failed.
+            const pending = stored.filter(a =>
+                ['highlight', 'underline', 'squiggle'].includes(a.type) &&
+                !document.getElementById(a.data?.id)
+            );
+            if (pending.length) this.retryPendingAnnotations(pending);
         });
+    }
+
+    retryPendingAnnotations(pending) {
+        if (!pending.length) return;
+        let attempts = 0;
+        const MAX_ATTEMPTS = 20;
+        const observer = new MutationObserver(() => {
+            attempts++;
+            const stillPending = pending.filter(a => !document.getElementById(a.data?.id));
+            stillPending.forEach(anno => this.renderStoredAnnotation(anno));
+            pending = pending.filter(a => !document.getElementById(a.data?.id));
+            if (!pending.length || attempts >= MAX_ATTEMPTS) observer.disconnect();
+        });
+        observer.observe(document.body, { childList: true, subtree: true });
     }
 
     setupStorageListener() {
