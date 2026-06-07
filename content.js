@@ -783,23 +783,34 @@ class AnnotateApp {
         const occurrence = this.getTextOccurrenceIndex(range, text);
 
         const spans = this.wrapRangeInDecoration(range, tag, className, id, styleType, color);
-        if (!spans.length) return;
+        if (!spans.elements.length) return;
 
         selection.removeAllRanges();
-        this.saveAnnotation(type, { id, text, color, path, startOffset: range.startOffset, occurrence });
+        this.saveAnnotation(type, {
+            id, text, color, path, startOffset: range.startOffset, occurrence,
+            segments: spans.segments
+        });
     }
 
     wrapRangeInDecoration(range, tag, className, id, styleType, color) {
         const textNodes = this.collectTextNodesInRange(range);
-        if (!textNodes.length) return [];
+        if (!textNodes.length) return { elements: [], segments: [] };
 
         const created = [];
+        const segments = [];
         [...textNodes].reverse().forEach((textNode) => {
             let start = 0;
             let end = textNode.textContent.length;
             if (textNode === range.startContainer) start = range.startOffset;
             if (textNode === range.endContainer) end = range.endOffset;
             if (start >= end) return;
+
+            segments.unshift({
+                path: this.getUniquePath(textNode.parentElement),
+                start,
+                end,
+                text: textNode.textContent.substring(start, end)
+            });
 
             const subRange = document.createRange();
             subRange.setStart(textNode, start);
@@ -822,7 +833,7 @@ class AnnotateApp {
         });
 
         if (created.length) created[0].id = id;
-        return created;
+        return { elements: created, segments };
     }
 
     applyHighlight(data) { this.renderTextDecoration(data, 'span', 'annotate-highlight', 'background'); }
@@ -856,6 +867,149 @@ class AnnotateApp {
         this.getHighlightGroupElements(id).forEach(fn);
     }
 
+    annotationExistsInDom(id) {
+        return !!document.getElementById(id) ||
+            !!document.querySelector(`[data-annotate-group="${id}"]`);
+    }
+
+    buildTextNodeBlocks(root = document.body) {
+        const blocks = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: (node) => {
+                if (!node.textContent.length) return NodeFilter.FILTER_REJECT;
+                if (this.isExtensionNode(node)) return NodeFilter.FILTER_REJECT;
+                if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+        let streamPos = 0;
+        let node;
+        while ((node = walker.nextNode())) {
+            blocks.push({ node, streamStart: streamPos, length: node.textContent.length });
+            streamPos += node.textContent.length;
+        }
+        return blocks;
+    }
+
+    rangeFromStreamOffsets(blocks, start, end) {
+        if (!blocks.length || end <= start) return null;
+        const range = document.createRange();
+        let startSet = false;
+        for (const block of blocks) {
+            const blockEnd = block.streamStart + block.length;
+            if (!startSet && start < blockEnd) {
+                range.setStart(block.node, Math.max(0, start - block.streamStart));
+                startSet = true;
+            }
+            if (startSet && end <= blockEnd) {
+                range.setEnd(block.node, Math.max(0, end - block.streamStart));
+                return range;
+            }
+        }
+        return startSet ? range : null;
+    }
+
+    findRangeByOccurrence(text, occurrence = 0) {
+        if (!text) return null;
+        const blocks = this.buildTextNodeBlocks();
+        if (!blocks.length) return null;
+        const fullText = blocks.map(b => b.node.textContent).join('');
+
+        let count = 0;
+        let pos = 0;
+        while ((pos = fullText.indexOf(text, pos)) !== -1) {
+            if (count === occurrence) {
+                return this.rangeFromStreamOffsets(blocks, pos, pos + text.length);
+            }
+            count++;
+            pos++;
+        }
+        return null;
+    }
+
+    resolveSegmentRange(seg) {
+        const host = this.getElementByPath(seg.path);
+        if (!host || !seg.text) return null;
+
+        const walker = document.createTreeWalker(host, NodeFilter.SHOW_TEXT, {
+            acceptNode: (node) => {
+                if (this.isExtensionNode(node)) return NodeFilter.FILTER_REJECT;
+                if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                return NodeFilter.FILTER_ACCEPT;
+            }
+        });
+
+        let node;
+        while ((node = walker.nextNode())) {
+            const content = node.textContent;
+            if (seg.start != null && seg.end != null && content.substring(seg.start, seg.end) === seg.text) {
+                const range = document.createRange();
+                range.setStart(node, seg.start);
+                range.setEnd(node, seg.end);
+                return range;
+            }
+            const idx = content.indexOf(seg.text);
+            if (idx !== -1) {
+                const range = document.createRange();
+                range.setStart(node, idx);
+                range.setEnd(node, idx + seg.text.length);
+                return range;
+            }
+        }
+        return null;
+    }
+
+    restoreTextDecoration(data, tag, className, styleType) {
+        if (this.annotationExistsInDom(data.id)) return true;
+
+        const style = styleType;
+        const color = data.color;
+        const id = data.id;
+        let restored = false;
+
+        if (data.segments?.length) {
+            let first = true;
+            for (const seg of data.segments) {
+                const range = this.resolveSegmentRange(seg);
+                if (!range) continue;
+
+                const el = document.createElement(tag);
+                el.className = className;
+                el.dataset.color = color;
+                el.dataset.annotateGroup = id;
+                if (first) { el.id = id; first = false; }
+                this.applyTextDecorationStyle(el, style, color);
+
+                try {
+                    range.surroundContents(el);
+                    restored = true;
+                } catch {
+                    try {
+                        el.appendChild(range.extractContents());
+                        range.insertNode(el);
+                        restored = true;
+                    } catch (e) {
+                        console.warn('Annotate: could not restore segment', e);
+                    }
+                }
+            }
+            if (restored) return true;
+        }
+
+        const range = this.findRangeByOccurrence(data.text, data.occurrence ?? 0);
+        if (!range) return false;
+
+        const result = this.wrapRangeInDecoration(range, tag, className, id, style, color);
+        if (result.elements.length && result.segments.length) {
+            this.updateAnnotation(id, { segments: result.segments });
+        }
+        return result.elements.length > 0;
+    }
+
     // Returns index (0-based) of how many times `text` appears in the document
     // before the given range's start point. Used to disambiguate repeated passages.
     getTextOccurrenceIndex(range, text) {
@@ -873,94 +1027,8 @@ class AnnotateApp {
         return count;
     }
 
-    findNthOccurrence(text, occurrence) {
-        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
-            acceptNode: (node) => {
-                if (this.isExtensionNode(node)) return NodeFilter.FILTER_REJECT;
-                if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                return NodeFilter.FILTER_ACCEPT;
-            }
-        });
-        let count = 0;
-        let node;
-        while ((node = walker.nextNode())) {
-            let pos = 0;
-            while ((pos = node.textContent.indexOf(text, pos)) !== -1) {
-                if (count === occurrence) return { node, pos };
-                count++;
-                pos++;
-            }
-        }
-        return null;
-    }
-
-    wrapTextInElement(root, text, wrapper, occurrence = 0, startOffset = null) {
-        // First try: honour the occurrence index across the full document body
-        // so repeated passages resolve to the right one.
-        const found = this.findNthOccurrence(text, occurrence);
-        if (found) {
-            try {
-                const range = document.createRange();
-                range.setStart(found.node, found.pos);
-                range.setEnd(found.node, found.pos + text.length);
-                range.surroundContents(wrapper);
-                return true;
-            } catch (_) {
-                // Cross-element range — fall through to root-scoped fallback
-            }
-        }
-
-        // Fallback: search within the stored parent element (old behaviour)
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-            acceptNode: (node) => {
-                if (this.isExtensionNode(node)) return NodeFilter.FILTER_REJECT;
-                if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
-                    return NodeFilter.FILTER_REJECT;
-                }
-                return node.textContent.includes(text) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
-            }
-        });
-        const textNode = walker.nextNode();
-        if (!textNode) return false;
-        const idx = textNode.textContent.indexOf(text);
-        if (idx === -1) return false;
-        try {
-            const range = document.createRange();
-            range.setStart(textNode, idx);
-            range.setEnd(textNode, idx + text.length);
-            try {
-                range.surroundContents(wrapper);
-            } catch (_) {
-                wrapper.appendChild(range.extractContents());
-                range.insertNode(wrapper);
-            }
-            return true;
-        } catch (e) {
-            console.error('Could not restore text decoration:', e);
-            return false;
-        }
-    }
-
     renderTextDecoration(data, tag, className, styleType) {
-        if (document.getElementById(data.id)) return;
-        if (!data.text) return;
-
-        // Try the stored path first; if the element is gone (dynamic page),
-        // fall back to searching the whole body.
-        const host = this.getElementByPath(data.path) || document.body;
-
-        const el = document.createElement(tag);
-        el.className = className;
-        el.id = data.id;
-        this.applyTextDecorationStyle(el, styleType, data.color);
-        if (data.color) el.dataset.color = data.color;
-
-        const ok = this.wrapTextInElement(host, data.text, el,
-            data.occurrence ?? 0, data.startOffset ?? null);
-        if (ok && data.id) el.dataset.annotateGroup = data.id;
-        return ok;
+        return this.restoreTextDecoration(data, tag, className, styleType);
     }
 
     // ─── Sticky Notes ────────────────────────────────
@@ -1191,7 +1259,7 @@ class AnnotateApp {
     }
 
     renderStoredAnnotation(anno) {
-        if (!anno?.data?.id || document.getElementById(anno.data.id)) return;
+        if (!anno?.data?.id || this.annotationExistsInDom(anno.data.id)) return;
         const { type, data } = anno;
         if (type === 'highlight') this.applyHighlight(data);
         else if (type === 'sticky') this.createSticky(data, false);
@@ -1247,7 +1315,7 @@ class AnnotateApp {
             // Watch for DOM mutations and retry any text decorations that failed.
             const pending = stored.filter(a =>
                 ['highlight', 'underline', 'squiggle'].includes(a.type) &&
-                !document.getElementById(a.data?.id)
+                !this.annotationExistsInDom(a.data?.id)
             );
             if (pending.length) this.retryPendingAnnotations(pending);
         });
@@ -1255,14 +1323,25 @@ class AnnotateApp {
 
     retryPendingAnnotations(pending) {
         if (!pending.length) return;
+
+        const tryRestore = () => {
+            pending
+                .filter(a => !this.annotationExistsInDom(a.data?.id))
+                .forEach(anno => this.renderStoredAnnotation(anno));
+        };
+
+        tryRestore();
+        window.addEventListener('load', tryRestore, { once: true });
+        document.addEventListener('DOMContentLoaded', tryRestore, { once: true });
+        [300, 1000, 3000, 6000].forEach(ms => setTimeout(tryRestore, ms));
+
         let attempts = 0;
-        const MAX_ATTEMPTS = 20;
+        const MAX_ATTEMPTS = 40;
         const observer = new MutationObserver(() => {
             attempts++;
-            const stillPending = pending.filter(a => !document.getElementById(a.data?.id));
-            stillPending.forEach(anno => this.renderStoredAnnotation(anno));
-            pending = pending.filter(a => !document.getElementById(a.data?.id));
-            if (!pending.length || attempts >= MAX_ATTEMPTS) observer.disconnect();
+            tryRestore();
+            const remaining = pending.filter(a => !this.annotationExistsInDom(a.data?.id));
+            if (!remaining.length || attempts >= MAX_ATTEMPTS) observer.disconnect();
         });
         observer.observe(document.body, { childList: true, subtree: true });
     }
