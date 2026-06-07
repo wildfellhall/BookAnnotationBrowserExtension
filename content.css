@@ -524,25 +524,28 @@
 /* ─── Text Decorations ────────────────────────────── */
 
 .annotate-highlight {
+    display: inline;
     cursor: pointer;
     border-radius: 2px;
-    transition: opacity 0.2s ease;
-    padding: 1px 0;
+    line-height: inherit;
+    padding: 0 1px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
 }
 
 .annotate-highlight:hover {
-    opacity: 0.75;
+    filter: brightness(0.92);
 }
 
 .annotate-underline {
-    border-bottom: 2px solid var(--dusty-rose);
-    text-decoration: none;
+    display: inline;
+    text-decoration: none !important;
     padding-bottom: 1px;
 }
 
 .annotate-squiggle {
-    border-bottom: 2px wavy var(--dusty-rose);
-    text-decoration: none;
+    display: inline;
+    text-decoration: none !important;
     padding-bottom: 1px;
 }
 
@@ -588,7 +591,8 @@
 .annotate-highlight.selected,
 .annotate-squiggle.selected,
 .annotate-underline.selected {
-    background-color: rgba(212, 160, 160, 0.25) !important;
+    outline: 2px solid var(--rose-gold);
+    outline-offset: 2px;
 }
 
 /* ─── Resize Handle ───────────────────────────────── */
