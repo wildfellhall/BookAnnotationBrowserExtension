@@ -580,8 +580,9 @@ class AnnotateApp {
     // ─── Listeners ───────────────────────────────────
 
     setupListeners() {
-        document.addEventListener('mouseup', () => {
+        document.addEventListener('mouseup', (e) => {
             if (!this.enabled) return;
+            if (e.target.closest('.annotate-toolbar, .annotate-sticky, .annotate-margin, .annotate-deco')) return;
             if (this.activeTool === 'highlighter') this.handleHighlight();
             else if (this.activeTool === 'underline') this.handleUnderline();
             else if (this.activeTool === 'squiggle') this.handleSquiggle();
@@ -630,8 +631,13 @@ class AnnotateApp {
 
     selectAnnotation(el) {
         this.deselectAnnotation();
-        el.classList.add('selected');
-        this.selectedAnnotationId = el.id;
+        const groupId = el.dataset.annotateGroup || el.id;
+        const isTextDeco = el.classList.contains('annotate-highlight') ||
+            el.classList.contains('annotate-underline') ||
+            el.classList.contains('annotate-squiggle');
+        const groupEls = isTextDeco ? this.getHighlightGroupElements(groupId) : [el];
+        groupEls.forEach(node => node.classList.add('selected'));
+        this.selectedAnnotationId = el.id || groupId;
         this.syncToolbarFromElement(el);
     }
 
@@ -672,17 +678,33 @@ class AnnotateApp {
     }
 
     updateSelectedColor(color) {
-        const el = document.getElementById(this.selectedAnnotationId);
+        let el = document.getElementById(this.selectedAnnotationId);
+        if (!el) {
+            const group = this.getHighlightGroupElements(this.selectedAnnotationId);
+            el = group[0];
+        }
         if (!el) return;
         if (el.classList.contains('annotate-sticky')) el.style.backgroundColor = color;
         if (el.classList.contains('annotate-deco')) el.querySelector('path').setAttribute('fill', color);
         if (el.classList.contains('annotate-margin')) el.querySelector('textarea')?.style.setProperty('color', color, 'important');
-        if (el.classList.contains('annotate-highlight')) el.style.backgroundColor = color;
+        if (el.classList.contains('annotate-highlight')) {
+            this.applyDecorationToGroup(this.selectedAnnotationId, (node) => {
+                node.style.setProperty('background-color', color, 'important');
+                node.dataset.color = color;
+            });
+        }
         if (el.classList.contains('annotate-squiggle') || el.classList.contains('annotate-underline')) {
             const styleType = el.classList.contains('annotate-squiggle') ? 'squiggle' : 'underline';
-            this.applyTextDecorationStyle(el, styleType, color);
+            this.applyDecorationToGroup(el.dataset.annotateGroup || this.selectedAnnotationId, (node) => {
+                this.applyTextDecorationStyle(node, styleType, color);
+                node.dataset.color = color;
+            });
         }
-        el.dataset.color = color;
+        if (!el.classList.contains('annotate-highlight') &&
+            !el.classList.contains('annotate-squiggle') &&
+            !el.classList.contains('annotate-underline')) {
+            el.dataset.color = color;
+        }
         this.updateAnnotation(this.selectedAnnotationId, { color });
     }
 
@@ -706,62 +728,132 @@ class AnnotateApp {
 
     // ─── Text Decorations ────────────────────────────
 
-    handleHighlight() { this.applyTextDecoration('highlight', 'mark', 'annotate-highlight'); }
+    handleHighlight() { this.applyTextDecoration('highlight', 'span', 'annotate-highlight'); }
     handleUnderline() { this.applyTextDecoration('underline', 'span', 'annotate-underline'); }
     handleSquiggle() { this.applyTextDecoration('squiggle', 'span', 'annotate-squiggle'); }
 
+    isExtensionNode(node) {
+        const el = node?.nodeType === Node.TEXT_NODE ? node.parentElement : node;
+        return !!el?.closest?.('.annotate-toolbar, .annotate-sticky, .annotate-margin, .annotate-deco');
+    }
+
+    collectTextNodesInRange(range) {
+        const ancestor = range.commonAncestorContainer;
+        const root = ancestor.nodeType === Node.TEXT_NODE ? ancestor.parentNode : ancestor;
+        if (!root) return [];
+
+        const nodes = [];
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+            acceptNode: (node) => {
+                if (!node.textContent.length) return NodeFilter.FILTER_REJECT;
+                if (this.isExtensionNode(node)) return NodeFilter.FILTER_REJECT;
+                if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                try {
+                    return range.intersectsNode(node) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
+                } catch {
+                    return NodeFilter.FILTER_REJECT;
+                }
+            }
+        });
+        let node;
+        while ((node = walker.nextNode())) nodes.push(node);
+        return nodes;
+    }
+
     applyTextDecoration(type, tag, className) {
         const selection = window.getSelection();
-        if (selection.rangeCount === 0 || selection.isCollapsed) return;
+        if (!selection || selection.isCollapsed || !selection.rangeCount) return;
+
         const range = selection.getRangeAt(0);
-        const color = this.getCurrentColor();
-        const id = 'id-' + Date.now();
+        if (this.isExtensionNode(range.commonAncestorContainer)) return;
+
         const text = selection.toString();
         if (!text.trim()) return;
 
-        // Capture location BEFORE any DOM mutation
+        const color = this.getCurrentColor();
+        const id = 'id-' + Date.now();
+        const styleType = type === 'highlight' ? 'background' : type;
         const startContainer = range.startContainer;
-        const startNode = startContainer.nodeType === Node.TEXT_NODE
-            ? startContainer.parentElement : startContainer;
-        const path = this.getUniquePath(startNode);
-        const startOffset = range.startOffset;
-        // Count how many times this exact text appears before this point in the document
+        const anchorNode = startContainer.nodeType === Node.TEXT_NODE
+            ? startContainer.parentElement
+            : startContainer;
+        const path = this.getUniquePath(anchorNode);
         const occurrence = this.getTextOccurrenceIndex(range, text);
 
-        const el = document.createElement(tag);
-        el.className = className;
-        el.id = id;
-        el.dataset.color = color;
-        this.applyTextDecorationStyle(el, type === 'highlight' ? 'background' : type, color);
-
-        try {
-            // surroundContents only works when range doesn't cross element boundaries
-            range.surroundContents(el);
-        } catch (_) {
-            // Fallback: wrap the extracted contents (handles cross-element selections)
-            try {
-                el.appendChild(range.extractContents());
-                range.insertNode(el);
-            } catch (e2) {
-                console.error('Could not apply ' + type + ':', e2);
-                selection.removeAllRanges();
-                return;
-            }
-        }
+        const spans = this.wrapRangeInDecoration(range, tag, className, id, styleType, color);
+        if (!spans.length) return;
 
         selection.removeAllRanges();
-        this.saveAnnotation(type, { id, text, color, path, startOffset, occurrence });
+        this.saveAnnotation(type, { id, text, color, path, startOffset: range.startOffset, occurrence });
     }
 
-    applyHighlight(data) { this.renderTextDecoration(data, 'mark', 'annotate-highlight', 'background'); }
+    wrapRangeInDecoration(range, tag, className, id, styleType, color) {
+        const textNodes = this.collectTextNodesInRange(range);
+        if (!textNodes.length) return [];
+
+        const created = [];
+        [...textNodes].reverse().forEach((textNode) => {
+            let start = 0;
+            let end = textNode.textContent.length;
+            if (textNode === range.startContainer) start = range.startOffset;
+            if (textNode === range.endContainer) end = range.endOffset;
+            if (start >= end) return;
+
+            const subRange = document.createRange();
+            subRange.setStart(textNode, start);
+            subRange.setEnd(textNode, end);
+
+            const el = document.createElement(tag);
+            el.className = className;
+            el.dataset.color = color;
+            el.dataset.annotateGroup = id;
+            this.applyTextDecorationStyle(el, styleType, color);
+
+            try {
+                subRange.surroundContents(el);
+            } catch {
+                const fragment = subRange.extractContents();
+                el.appendChild(fragment);
+                subRange.insertNode(el);
+            }
+            created.unshift(el);
+        });
+
+        if (created.length) created[0].id = id;
+        return created;
+    }
+
+    applyHighlight(data) { this.renderTextDecoration(data, 'span', 'annotate-highlight', 'background'); }
     applyUnderline(data) { this.renderTextDecoration(data, 'span', 'annotate-underline', 'underline'); }
     applySquiggle(data) { this.renderTextDecoration(data, 'span', 'annotate-squiggle', 'squiggle'); }
 
     applyTextDecorationStyle(el, styleType, color) {
         if (!color) return;
-        if (styleType === 'background') el.style.backgroundColor = color;
-        else if (styleType === 'underline') el.style.borderBottom = `2px solid ${color}`;
-        else if (styleType === 'squiggle') el.style.borderBottom = `2px wavy ${color}`;
+        if (styleType === 'background') {
+            el.style.setProperty('background-color', color, 'important');
+            el.style.setProperty('color', 'inherit', 'important');
+            el.style.setProperty('box-decoration-break', 'clone', 'important');
+            el.style.setProperty('-webkit-box-decoration-break', 'clone', 'important');
+        } else if (styleType === 'underline') {
+            el.style.setProperty('border-bottom', `2px solid ${color}`, 'important');
+            el.style.setProperty('text-decoration', 'none', 'important');
+        } else if (styleType === 'squiggle') {
+            el.style.setProperty('border-bottom', `2px wavy ${color}`, 'important');
+            el.style.setProperty('text-decoration', 'none', 'important');
+        }
+    }
+
+    getHighlightGroupElements(id) {
+        const escaped = (window.CSS && CSS.escape) ? CSS.escape(id) : id.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
+        return Array.from(document.querySelectorAll(
+            `#${escaped}, [data-annotate-group="${id}"]`
+        ));
+    }
+
+    applyDecorationToGroup(id, fn) {
+        this.getHighlightGroupElements(id).forEach(fn);
     }
 
     // Returns index (0-based) of how many times `text` appears in the document
@@ -770,16 +862,21 @@ class AnnotateApp {
         const priorRange = document.createRange();
         priorRange.setStart(document.body, 0);
         priorRange.setEnd(range.startContainer, range.startOffset);
-        const priorText = priorRange.toString();
+        const fragment = priorRange.cloneContents();
+        const container = document.createElement('div');
+        container.appendChild(fragment);
+        container.querySelectorAll('.annotate-toolbar, .annotate-sticky, .annotate-margin, .annotate-deco, .annotate-highlight, .annotate-underline, .annotate-squiggle')
+            .forEach(el => el.remove());
+        const priorText = container.textContent;
         let count = 0, pos = 0;
         while ((pos = priorText.indexOf(text, pos)) !== -1) { count++; pos++; }
         return count;
     }
 
-    // Find the Nth occurrence (0-based) of `text` in the page, skipping already-annotated nodes.
     findNthOccurrence(text, occurrence) {
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
             acceptNode: (node) => {
+                if (this.isExtensionNode(node)) return NodeFilter.FILTER_REJECT;
                 if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
                     return NodeFilter.FILTER_REJECT;
                 }
@@ -818,6 +915,7 @@ class AnnotateApp {
         // Fallback: search within the stored parent element (old behaviour)
         const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
             acceptNode: (node) => {
+                if (this.isExtensionNode(node)) return NodeFilter.FILTER_REJECT;
                 if (node.parentElement?.closest('.annotate-highlight, .annotate-underline, .annotate-squiggle')) {
                     return NodeFilter.FILTER_REJECT;
                 }
@@ -861,6 +959,7 @@ class AnnotateApp {
 
         const ok = this.wrapTextInElement(host, data.text, el,
             data.occurrence ?? 0, data.startOffset ?? null);
+        if (ok && data.id) el.dataset.annotateGroup = data.id;
         return ok;
     }
 
@@ -1079,11 +1178,15 @@ class AnnotateApp {
             }
             this.storeAnnotationMeta(el, data);
         } else if (type === 'highlight' && data.color) {
-            el.style.backgroundColor = data.color;
-            el.dataset.color = data.color;
+            this.applyDecorationToGroup(data.id, (node) => {
+                node.style.setProperty('background-color', data.color, 'important');
+                node.dataset.color = data.color;
+            });
         } else if ((type === 'underline' || type === 'squiggle') && data.color) {
-            this.applyTextDecorationStyle(el, type, data.color);
-            el.dataset.color = data.color;
+            this.applyDecorationToGroup(data.id, (node) => {
+                this.applyTextDecorationStyle(node, type, data.color);
+                node.dataset.color = data.color;
+            });
         }
     }
 
@@ -1109,8 +1212,20 @@ class AnnotateApp {
         });
 
         if (allowRemoval && this.storageHydrated) {
+            const toRemove = new Set();
             document.querySelectorAll('.annotate-sticky, .annotate-margin, .annotate-deco, .annotate-highlight, .annotate-squiggle, .annotate-underline')
-                .forEach(el => { if (!storedIds.has(el.id)) el.remove(); });
+                .forEach(el => {
+                    const annoId = el.id || el.dataset.annotateGroup;
+                    if (annoId && !storedIds.has(annoId)) toRemove.add(annoId);
+                });
+            toRemove.forEach(annoId => {
+                const groupEls = this.getHighlightGroupElements(annoId);
+                if (groupEls.length) {
+                    groupEls.forEach(node => node.replaceWith(...Array.from(node.childNodes)));
+                } else {
+                    document.getElementById(annoId)?.remove();
+                }
+            });
         }
 
         this.storageHydrated = true;
@@ -1185,9 +1300,16 @@ class AnnotateApp {
 
     deleteAnnotation(id, element) {
         const key = this.getPageKey();
+        const groupEls = this.getHighlightGroupElements(id);
         chrome.storage.local.get([key], (result) => {
             let annotations = (result[key] || []).filter(anno => anno.data?.id !== id && anno.id !== id);
-            chrome.storage.local.set({ [key]: annotations }, () => { if (element) element.remove(); });
+            chrome.storage.local.set({ [key]: annotations }, () => {
+                if (groupEls.length) {
+                    groupEls.forEach(node => node.replaceWith(...Array.from(node.childNodes)));
+                } else if (element) {
+                    element.remove();
+                }
+            });
         });
     }
 
